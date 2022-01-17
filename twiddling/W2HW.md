@@ -85,7 +85,7 @@ Continuing.
 2. Twiddling
 
 By inspecting the decompiled main below, we can figure out that the program expects to read a string, covert the ascii numbers of these characters to `unsigned int`, and save them in a uint array of 32 elements. After the input passes the string length check (0x20 elements), the program starts mangling the string with `this_is_where_the_fun_begins`.
-```
+```c
 
 undefined8 main(void)
 
@@ -141,7 +141,7 @@ Collect them to get: `23hk__57l2_bwkD22232fk{Q|a5}O|b6`.
 
 
 After some Ghidra renaming and retyping, we get the decompiled `this_is_where_the_fun_begins`:
-```
+```c
 void this_is_where_the_fun_begins(uint *inp)
 {
   int iVar1;
@@ -206,7 +206,7 @@ Take a look at the function, and we can make two guesses:
 2. The swapping will not erase an element, so every element in the original array will be processed.
 
 We can verify this by isolating out the swap calls and reversing them in another function, and observe that we get back the original input array.
-```
+```c
 void forward_swap(uint *inp)
 {
   int iVar1;
@@ -256,7 +256,7 @@ int main() {
 ``` 
 
 Now we isolate the translation (character mangling) part in the `this_is_where_the_fun_begins` function, and put it in a new function:
-```
+```c
 void only_translate(uint *inp)
 {
   int iVar1;
@@ -285,7 +285,7 @@ void only_translate(uint *inp)
 }
 ```
 Now we can inspect if the same character in different positions of the array will give different results, e.g, to check if the mapping is one to many:
-```
+```c
 void print_one_to_many() {
     uint inp[32];
 
@@ -311,7 +311,7 @@ void print_one_to_many() {
 }
 ```
 Fortunately, they are not one-to-many, but also not one-to-one, instead, it's many-to-one. For example, both 40 and 52 will map to 33. We can print the mapping via:
-```
+```c
 void print_map() {
     uint inp[32];
 
@@ -345,7 +345,7 @@ Image   :  96	98	97	99	103	101	102	98	107	105	106	110	108	104	107	111	115	113	11
 ```
 
 To get all the possible preimage strings, we need to map the ENCRYPTED string through the mapping above and then `reverse_swap` each one of them. To do this we make use of a little python:
-```
+```python
 # The decimal representation of the ENCRYPTED string:
 encrypt = [50, 51, 104, 107, 95, 95, 53, 55, 108, 50, 95, 98, 119, 107, 68, 50, 50, 50, 51, 50, 102, 107, 123, 81, 124, 97, 53, 125, 79, 124, 98, 54]
 
@@ -389,7 +389,7 @@ The output is surprisingly long, thus abbreviated:
 ```
 
 To be extra safe, we save them in an array of type `uint possible[2048][32]` and check it in C and print them as characters if they match (they should):
-```
+```c
 void try_possible() {
   uint encrypt[32] = {50, 51, 104, 107, 95, 95, 53, 55, 108, 50, 95, 98, 119, 107, 68, 50, 50, 50, 51, 50, 102, 107, 123, 81, 124, 97, 53, 125, 79, 124, 98, 54};
   int found = 0;
