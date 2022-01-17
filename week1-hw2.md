@@ -61,7 +61,8 @@ Contents of section .rodata:
 
 ## 2. Second Program
 The assembly code of `main` from `second-fast` and `second-small` look very similar, thus equally easy (or not so easy) to understand. 
-What I found most confusing is their use of %rbp register for storing the addr of the format string.
+What I found confusing is that when calling `__printf_chk@plt`, the format string is actually passed through %rsi instead of %rdi. So my guess is `__printf_chk@plt` is a wrapper of printf, used for lazy dynamic linking.
+
 
 Here is the assembly opf `main` from `second-fast`:
 ```
