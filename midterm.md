@@ -4,9 +4,9 @@
 
 ## P1
 
-For this one, I just used the 4q67-plain linux version (since the Game of Thrones version is present).
+For this one, I just used the 4q67-plain linux version (since the Game of Thrones version is not present).
 
-By using strace or looking at the `eax` register, we can easily grasp the syscalls made in the beginning, `stat` and `mprotect`.
+By using strace or looking at the `eax` register values in the syscalls, we can easily grasp the syscalls made in the beginning: `stat` and `mprotect`.
 
 With the auto-analysis of Ghidra we can see the program expects a `.probe` file, let's give it one:
 
@@ -57,13 +57,13 @@ Congratulations, you've done it! Your token is SYSCALL_7647
 
 Now the question is where does the 29 come from? This is initially where I was stuck and pushed to ask for a hint from Sergey.
 
-Although the C pseudo-code looks clear, I didn't change the datatype of `local_c8` to `stat` in the beginning. Why does this matter? Because Ghidra incorrectly thought that `local_c8` was 88 bytes long (`undefined mod60_from [88];`) which causes it to also miss the fact that the second parameter passed to `stat` syscall would be used later!
+Although the C pseudo-code looks clear, I didn't change the datatype of `local_c8` to `stat` in the beginning (Ghidra seems to omit `struct` in its type definitions). Why does this matter? Because Ghidra incorrectly thought that `local_c8` was 88 bytes long (`undefined mod60_from [88];`) which causes it to also miss the fact that the second parameter passed to `stat` syscall would be used later!
 
-I learned it the hard way by changing the .probe file. This is something I really shouldn't have missed but I did. It costs me hours.
+I fumbled around and finally learned it the hard way by touching and changing the .probe file. This is something I really shouldn't have missed but I did. It cost me hours.
 
 > Rule: clean up the datatypes as best as you can!
 
-Anyway, now we can see the seconds of the file creation time matters, let's touch it:
+Anyway, now we can see the seconds when the file is modified matters, let's touch it:
 
 ```bash
 f004q67@babylon2:~/re/RE-basics-W22/midterm/p1/4q67$ touch -t 200001010101.29 .probe
@@ -153,6 +153,7 @@ Here is the script I wrote:
 ```python
 from ghidra.program.model.symbol import SourceType
 
+# Assume _entry has been defined at 08000000
 entry_addr = getGlobalFunctions('_entry')[0].getEntryPoint()
 
 # >>> entry_addr
