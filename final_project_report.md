@@ -1,4 +1,4 @@
-# Ghidra Script for Automatci Use-After-Free Detection in Binary Code
+# Ghidra Script for Automatic Use-After-Free Detection in Binary Code
 
 ## Fei Guo
 
@@ -6,21 +6,21 @@
 
 In this project, I'll explore doing Ghidra scripting for automatic detection of pointers' user-after-free (UAF) in binary code. I'll present my Ghidra script for UAF detection, and show a few examples where it succeeds, and some cases that it doesn't, after which I'll propose some further improvements.
 
-Before I worked on this script, I read through Alexei's MallocTrace script (which was written in Java), which turns out to be helpful, although the ideas are quite different. Basically, for MallocTrace, we need to look at all calls to `malloc`, and trace back the parameter of `malloc`. For UAF detection, on the other hand, we can't start from `free` and trace back, but instead, we need to start from `malloc` and trace forward. 
+Before I worked on this script, I read through Alexei's MallocTrace script (which was written in Java), which turns out to be helpful, although the ideas are quite different. Basically, for MallocTrace, we need to look at all calls to `malloc` and trace back the parameter of `malloc`. For UAF detection, on the other hand, we can't start from `free` and trace backward, but instead, we need to start from `malloc` and trace forward. 
 
-The script is in the end of the report.
+The script is at the end of the report.
 
 
 ## Complexities
 
-Basically, this is our starting point:
+This is our starting point:
 
 `int *p; p = malloc(NUM_BYTES);`
 
-We find each call like this, and move forward to see how `p` is used. With this idea in mind, let's see how things can get tricky:
+We find each call like this and move forward to see how `p` is used. With this idea in mind, let's see how things can get tricky:
 
-* name reuse: after malloc'ing for `p`, let's say we do a `free(p); p = malloc(MORE_BYTES);`, although `p` is used after free, but since it's a new `
-malloc`, this variable has no relation with the previous one.
+* name reuse: after malloc'ing for `p`, let's say we do a `free(p); p = malloc(MORE_BYTES);`. Apparently, `p` is "used" after free, but it's assigned to the return value of a new `
+malloc`, so this variable has no relation with the previous one.
 
 * aliasing: `p` is re-assigned to some other variable, say `q`, though `int *q = p;`, and then after `free(p);`, there is a `*q = 4;`. This is an obvious UAF, but aliasing makes it harder to tackle.
 
@@ -28,7 +28,7 @@ malloc`, this variable has no relation with the previous one.
 
 * pointer as a return value: `p` is returned as a pointer to a caller, e.g, `return p;`.
 
-* branches: the use of p depends on which branch the program actually takes, e.g, `if (flag) free(p); else *p = NUM;`.
+* branches: the use of p depends on which branch the program takes, e.g, `if (flag) free(p); else *p = NUM;`.
 
 * global pointer: p is declared as a global variable, and we can't glean its usages by only looking at `main` or some other function.
 
@@ -36,9 +36,9 @@ Each of these cases can get difficult to handle if we analyze it purely in assem
 
 ## How Ghidra helps
 
-Fortunately, Ghidra comes handy for this task for several reasons:
+Fortunately, Ghidra comes in handy for this task for several reasons:
 
-* its decompiler automatically tries to generate C code that are in SSA (Single Static Assignment) form. This means that some cases are automatically handled by Ghidra, for example, the previous `name reuse` case, because Ghidra will give the variable for the second malloc a different name. What's even better, Ghidra can recognzie the aliasing and determine the actual variable we are manipulating. We'll see an example shortly for this.
+* its decompiler automatically tries to generate C code that is in SSA (Single Static Assignment) form. This means that some cases are automatically handled by Ghidra, for example, the previous `name reuse` case, because Ghidra will give the variable for the second malloc a different name. What's even better, Ghidra can recognize the aliasing and determine the actual variable we are manipulating. We'll see an example shortly for this.
 
 * its decompiler gives us the information about the parameters of a function, which disassembler doesn't give on its own. We need this capability of Ghidra to deal with the case that the pointer gets passed as a parameter to another function, and see how the function uses the pointer.
 
@@ -49,8 +49,8 @@ Fortunately, Ghidra comes handy for this task for several reasons:
 Here is the outline of the algorithm I implemented for detecting UAF in Ghidra:
 
 1. Get a list of functions (`callers`) that called `malloc`
-2. Walk through each caller, and collect all the `callsites` that actually issued the operation of calling `malloc`
-3. For each callsite, get the newly `malloc`ed `pointer` , and initialize the bookkeeping free_flag as False, i.e, not freed
+2. Loop through each caller, and collect all the `callsites` that issued the operation of calling `malloc`
+3. For each callsite, get the newly `malloc`ed `pointer`  and initialize the bookkeeping free_flag as False, i.e, not freed
 4. Get the descendants (i.e, further usages of a variable) of the `pointer` through Ghidra API
 5. for each descendant of the `pointer`, we do a case analysis of its Opcode. 	
 	* If it is used as a parameter in a function call, we check if the function name is `free`, if it is, mark the free_flag as True. Otherwise, we step into the function and look at how the pointer is used inside that function.
@@ -58,7 +58,7 @@ Here is the outline of the algorithm I implemented for detecting UAF in Ghidra:
 	* If it is used after it's already been freed, we deem this use as UAF and report it before terminating.
 	* Otherwise we skip this usage and continue.
 
-With this simple algorithim, let's look at some examples that it succeeds in detecting UAF.
+With this simple algorithm, let's look at some examples where it succeeds in detecting a UAF.
 
 ## Examples 
 
@@ -103,7 +103,7 @@ undefined8 entry(void)
   return 0;
 }
 ```
-As we can see, although we used `q`, an alias of `p` in `do_p(q)` and `q[3]=4`, Ghidra tells us that it's actually still `pvVar1`, which simplified the detection a lot. And here is the running result of the detector:
+As we can see, although we used `q`, an alias of `p` in `do_p(q)` and `q[3]=4`, Ghidra tells us that it's still `pvVar1`, which simplified the detection a lot. And here is the running result of the detector:
 
 ```
 UAF_detector.py> Running...
@@ -140,7 +140,7 @@ int main() {
 }
 ```
 
-As usual, Ghidra did de-aliasing for us, which makes the detector's job eaiser.
+As usual, Ghidra did de-aliasing for us, which makes the detector's job easier.
 
 ```c
 undefined8 entry(void)
@@ -196,7 +196,7 @@ int main() {
 }
 ```
 
-The algorithm succeeds in detecting the UAF since it tracks down the use of the pointer in the caller of the `get_ptr` function. We can see from the output below that the pointer initialized at `100003f2d` was returned and assigned to another pointer at `100003f4f`, and the later pointer was freed and re-used, causing a UAF.
+The algorithm succeeds in detecting the UAF since it tracks down the use of the pointer in the caller of the `get_ptr` function. We can see from the output below that the pointer initialized at `100003f2d` was returned and assigned to another pointer at `100003f4f`, and the latter pointer was freed and re-used, causing a UAF.
 
 ```
 UAF_detector.py> Running...
@@ -276,14 +276,14 @@ Frankly, the previous algorithm is very naive, and in particular, does not handl
 
 * spurious use after free: for example, after the pointer was freed, usages like this `p = !p; p++; p--;` should not be counted as UAF. But since this kind of use is rare in real-world programming, and can be considered bad style, we nonetheless say they are violations and report UAF.
 
-* branches: it will give a false alarm when it sees something like `if (flag) free(p); else *p = NUM;` , which it will say `*p = NUM` is a UAF, but actually it is not. I tried to handle this case by forking a new "detector" and let each detector go down one branch, but I don't know how to follow a branch. For example, every time I see a BRANCH pcode, I get the address of its first input, and try to get the PcodeOps from address, but can't get any results, i.e, it returns an empty set. So I ended up not handling branches.
+* branches: it will give a false alarm when it sees something like `if (flag) free(p); else *p = NUM;` , which it will say `*p = NUM` is a UAF, but it is not. I tried to handle this case by forking a new "detector" and letting each detector go down one branch, but I don't know how to follow a branch. For example, every time I see a BRANCH pcode, I get the address of its first input, and try to get the PcodeOps from the address, but can't get any results, i.e, it returns an empty set. So I ended up not handling branches.
 ```
     if (op.getOpcode() == PcodeOp.BRANCH):
         addr = op.getInput(0).getAddress()        
         print "target instructions:", list(highfunc.getPcodeOps(addr))
 ``` 
 
-* global variables well, because I could not decide which usage happends first if these usages are in different functions that have no apparent order of happening, I didn't handle global pointers. 
+* global variables well, because I could not decide which usage happens first if these usages are in different functions that have no apparent order of happening, I didn't handle global pointers. 
 
 
 To sum up, the detector is far from context-sensitive. It doesn't handle branches, loops, or pointers defined as global variables. To make the detector work in such scenarios, we may need to do loop unrolling, and employ an SMT solver to identify which branches are feasible. This is currently beyond the scope of this project, and I hope to learn more about this in the upcoming Compiler course. 
@@ -377,7 +377,7 @@ class FreeInfo:
 
 def myCallSiteAnalyze(callsites):
     """
-    For each of the callsites, first we get its output (i.e, the varnode that
+    For each of the callsites, first, we get its output (i.e, the varnode that
     stores the return value of the function call). Then we initialize a FreeInfo
     object, mark its flag False (not freed), and then analyze its later usage by
     walking through its descendants.
