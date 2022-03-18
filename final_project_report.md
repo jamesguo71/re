@@ -28,9 +28,9 @@ malloc`, so this variable has no relation with the previous one.
 
 * pointer as a return value: `p` is returned as a pointer to a caller, e.g, `return p;`.
 
-* branches: the use of p depends on which branch the program takes, e.g, `if (flag) free(p); else *p = NUM;`.
+* branches: the use of `p` depends on which branch the program takes, e.g, `if (flag) free(p); else *p = NUM;`.
 
-* global pointer: p is declared as a global variable, and we can't glean its usages by only looking at `main` or some other function.
+* global pointer: `p` is declared as a global variable, and we can't glean its usages by only looking at `main` or some other function.
 
 Each of these cases can get difficult to handle if we analyze it purely in assembly. 
 
@@ -54,7 +54,7 @@ Here is the outline of the algorithm I implemented for detecting UAF in Ghidra:
 4. Get the descendants (i.e, further usages of a variable) of the `pointer` through Ghidra API
 5. for each descendant of the `pointer`, we do a case analysis of its Opcode. 	
 	* If it is used as a parameter in a function call, we check if the function name is `free`, if it is, mark the free_flag as True. Otherwise, we step into the function and look at how the pointer is used inside that function.
-	* If it is used as a return value, we track how the caller of the current function uses the pointer in its function body.
+	* If it is used as a return value, we track down how the caller of the current function uses the pointer in its function body.
 	* If it is used after it's already been freed, we deem this use as UAF and report it before terminating.
 	* Otherwise we skip this usage and continue.
 
@@ -86,7 +86,7 @@ int main() {
 }
 
 ```
-The script has no problem detecting this UAF, thanks to Ghidra's decompiler's auto de-aliasing, which we can see through its decompiled C code:
+The script has no problem detecting this UAF, thanks to the auto de-aliasing of Ghidra's decompiler, which we can see in the decompiled C code:
 ```c
 undefined8 entry(void)
 
@@ -120,7 +120,7 @@ UAF_detector.py> Finished!
 
 ### 2. Freed in another function
 
-Here is a C program that malloc for two pointers, then frees one, after which makes an alias and frees the alias in another function `do_p`, then use the pointer for assignment.
+Here is a C program that does `malloc` for two pointers, then frees one, after which makes an alias and frees the alias in another function `do_p`, then uses the pointer for assignment.
 
 ```c
 #include <stdlib.h>
@@ -212,7 +212,7 @@ UAF_detector.py> Finished!
 
 ### 4. A failed case when encountering branches
 
-Here is a C program that will either free a pointer or deference it based on an error condition. However, since the detector is not context-sensitive, it fails to notice that only when `abrt` is 0 that the pointer will be dereferenced.
+Here is a C program that will either free a pointer or deference it based on an error condition. However, since the detector is not context-sensitive, it fails to notice that only when `abrt` is not 0 that the pointer will be dereferenced, but the `free` operation only happens when abrt is 0, which contradicts the previous condition, making the deref a non-violation.
 
 ```c
 #include <stdlib.h>
@@ -249,7 +249,7 @@ Already Freed at: 100003f60
 UAF_detector.py> Finished!
 ```
 
-One thing interesting to note is that while the decompiled function puts the `free` branch after the dereferencing branch, the detector nonetheless reports a UAF. The reason is the `descendants` of a varnode are actually ordered by their position in the assembly listing, not the decompiled code. The `free` operation comes before the deref operation in the listing, thus leading the detector to see a use after `free`.
+One thing interesting to note is that while the decompiled function puts the `free` branch after the dereferencing branch, the detector nonetheless reports a UAF. The reason is the `descendants` of a varnode are actually ordered by their positions in the assembly listing, not the decompiled code. The `free` operation comes before the deref operation in the listing, thus leading the detector to see a use after `free`.
 
 ```c
 undefined4 entry(void)
@@ -276,17 +276,17 @@ Frankly, the previous algorithm is very naive, and in particular, does not handl
 
 * spurious use after free: for example, after the pointer was freed, usages like this `p = !p; p++; p--;` should not be counted as UAF. But since this kind of use is rare in real-world programming, and can be considered bad style, we nonetheless say they are violations and report UAF.
 
-* branches: it will give a false alarm when it sees something like `if (flag) free(p); else *p = NUM;` , which it will say `*p = NUM` is a UAF, but it is not. I tried to handle this case by forking a new "detector" and letting each detector go down one branch, but I don't know how to follow a branch. For example, every time I see a BRANCH pcode, I get the address of its first input, and try to get the PcodeOps from the address, but can't get any results, i.e, it returns an empty set. So I ended up not handling branches.
+* branches: it will give a false alarm when it sees something like `if (flag) free(p); else *p = NUM;` , which it will say `*p = NUM` is a UAF, but it is not. I tried to handle this case by forking a new "detector" and letting each detector go down one branch, but I don't know how to follow a branch in Ghidra's pcode. What I tried was, every time I see a BRANCH pcode, I get the address of its first input, and try to get the PcodeOps from the address, but can't get any results (i.e, it returns an empty set). So I ended up not handling branches.
 ```
     if (op.getOpcode() == PcodeOp.BRANCH):
         addr = op.getInput(0).getAddress()        
         print "target instructions:", list(highfunc.getPcodeOps(addr))
 ``` 
 
-* global variables well, because I could not decide which usage happens first if these usages are in different functions that have no apparent order of happening, I didn't handle global pointers. 
+* global variables: because I could not decide which usage happens first if these usages are in different functions that have no apparent order of happening, the detector doesn't handle global pointers. 
 
 
-To sum up, the detector is far from context-sensitive. It doesn't handle branches, loops, or pointers defined as global variables. To make the detector work in such scenarios, we may need to do loop unrolling, and employ an SMT solver to identify which branches are feasible. This is currently beyond the scope of this project, and I hope to learn more about this in the upcoming Compiler course. 
+To sum up, the detector is far from context-sensitive. It doesn't handle branches, loops, or pointers defined as global variables. To make the detector work in such scenarios, we may need to do loop unrolling, and employ an SMT solver to identify which branches are feasible during execution. This is currently beyond the scope of this project, and I hope to learn more about this in the upcoming Compiler course. 
 
 
 ## The Script
